@@ -1,0 +1,552 @@
+---
+title: Prediction of fare and changes in airfare with Southwest Airline’s entry in
+  a new route.
+author: "Sarthak Mohapatra"
+output: pdf_document
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 4)
+options(scipen = 999)
+```
+
+**Loading all the required packages that will be used in the code. In case if the package is not installed, pacman will install it and then load it.**
+
+```{r package}
+pacman::p_load(data.table, forecast, leaps, tidyverse, caret, corrplot, glmnet, mlbench, ggplot2, 
+               gplots, pivottabler, ggpubr, MASS, knitr, rmarkdown)
+```
+
+**Reading the I/P file Airfares.CSV from the working directory and generating respective files that will be used in the code.**
+
+```{r inputfile, echo=FALSE}
+## We will read the I/P file from the working directory.
+inp_file <- read.csv("Airfares.csv")
+##
+## Now let's look at the data and explore the various columns in the data.
+##
+print("Displaying the first 6 records of the I/P file.")
+head(inp_file)
+##
+## Converting the I/P file into a Data Frame in R and displaying the file.
+##
+inp_file.df <- setDF(inp_file)
+##
+## For the Exploratory Data Analysis and to check correlation between numeric variables, 
+## we are creating a new file with only the numeric variables. 
+##
+inp_file_num <- select_if(inp_file, is.numeric)
+print("Displaying the first 6 records of all the numeric variables in the I/P file.")
+head(inp_file_num)
+print("The Statistical summary of every variable of the data set is mentioned below:")
+summary(inp_file_num)
+```
+
+
+```{r fare-dist}
+##
+## First, let us have a look at the way the FARE data variable is distributed in the input file.
+##
+hist((inp_file.df$FARE), col='red3', border='black', 
+     main='Distribution of Average Fare for a route.', 
+     xlab = 'Frequency', ylab = 'Average Fare for a route.')
+hist(log(inp_file.df$FARE), col='red3', border='black', 
+     main='Distribution of Average Fare for a route.', 
+     xlab = 'Frequency', ylab = 'Average Fare for a route.')
+```
+**The above histograms shows the distribution of Average Fare for a route. The Fare distribution has been log transformed so that the percentage change in the Air Fares is approximately normally distributed.**
+
+```{r Coupon-dist}
+##
+## Now, let us have a look at the way COUPON data variable is distributed in the input file.
+##
+hist(inp_file.df$COUPON, col='red3', border='black', 
+     main='Distribution of Number of coupons for a route.', 
+     xlab = 'Frequency', ylab = 'Number of coupons for a route.')
+```
+**The above histogram shows the sitribution of number of coupons for a route. It can be seen that for majority of the routes, the average number of coupons that are present are close to 1.**
+
+```{r HIindex-dist}
+##
+## Now let'slook at the way HI data column is distributed in the input file.
+##
+hist((inp_file.df$HI), col='red3', border='black', 
+     main='Distribution of Herfindahl index.', 
+     xlab = 'Frequency', ylab = 'Herfindahl index for a route.')
+```
+**The above histogram shows the distribution of HI Index, a measure of market concentration (higher number means smaller number of available carriers on that route). The distribution seems to be approximately normal for HI index.**
+
+
+```{r Start-city-income-distriution}
+##
+## Now let's look at the way S_INCOME data is distributed in the input file.
+##
+hist((inp_file.df$S_INCOME), col='red3', border='black', 
+     main='Starting city average personal income.', 
+     xlab = 'Frequency', ylab = 'Starting city average personal income.')
+hist(log(inp_file.df$S_INCOME), col='red3', border='black', 
+     main='Starting city average personal income.', xlab = 'Frequency', 
+     ylab = 'Log Transformed - Starting city average personal income.')
+```
+**The above histograms shows the distribution of starting city's personal income. The starting point's average annual income is log transformed to capture the percentage change in the income.**
+
+```{r end-city-income-dist}
+##
+## Let's look at the way end city personal income data is distributed in the input file.
+##
+hist((inp_file.df$E_INCOME), col='red3', border='black', 
+     main='Ending city average personal income.', 
+     xlab = 'Frequency', ylab = 'Ending city average personal income.')
+hist(log(inp_file.df$E_INCOME), col='red3', border='black', 
+     main='Ending city average personal income.', 
+     xlab = 'Frequency', ylab = 'Log transformed - Ending Fare for a route.')
+```
+**The above histogram shows the log transformed version of the End city/destination city's average personal income. The end point's average annual income is log transformed to capture the percentage change in the income.**
+
+```{r start-city-population-dist}
+##
+## Let us have a look at the way start city population data is distributed in the input file.
+##
+hist((inp_file.df$S_POP), col='red3', border='black', 
+     main='Distribution of Starting city population.', 
+     xlab = 'Frequency', ylab = 'Starting city population.')
+```
+
+**The above histogram shows the distribution of the Starting city's population. It can be seen that for almost 140 observations the starting city was the same.** 
+
+```{r end-city-population-dist}
+## Let us have a look at the way ending city population data is distributed in the input file.
+##
+hist((inp_file.df$E_POP), col='red3', border='black', 
+     main='Distribution of ending city Population.', 
+     xlab = 'Frequency', ylab = 'Ending city Population.')
+```
+
+**The above histogram shows the population distribution for the ending city. It can be seen that there are almost 200 observations where the ending city was the same.**
+
+```{r distance-distribution}
+##
+## Let us have a look at the way distance between two city data is distributed in the input file.
+##
+hist(inp_file.df$DISTANCE, col='red3', border='black', 
+     main='Distribution of Distance between end points.', 
+     xlab = 'Frequency', ylab = 'Distance between end-points.')
+```
+
+**The above histogram shows the distribution of distance between two end points.**
+
+```{r pax-distribution}
+##
+## Let us have a look at the way number of passengers data is distributed in the input file.
+##
+hist((inp_file.df$PAX), col='red3', border='black', 
+     main='Distribution of Number of passengers.', 
+     xlab = 'Frequency', ylab = 'Number of passengers.')
+```
+
+**The above histogram explains the distribution of number of passengers in a route.** 
+
+
+```{r corr-plot}
+##
+## Let's plot the heat map to look at the correlation between variables in the data set.
+##
+heatmap.2(cor(inp_file_num), dendrogram = "none", 
+          cellnote = round(cor(inp_file_num),2), 
+          notecol = "navy", key = FALSE, trace = "none", symm=T)
+```
+
+**The above heat-map shows the correlation between every variable.** 
+**1 - It can be seen that FARE has highest positive correlation with DISTANCE. It would mean that with increase in distance, the FARE is going to increase.** 
+**2 - DISTANCE has a strong positive correlation between COUPON. It means that, if distance between two points is more, then it is likely that there will be more coupons for that route.**
+**3 - DISTANCE has the high negative correlation with HI. It can mean that, if distance between two points is less, then there would be lesser flights opertaing and so the HI index would be more.**
+**4 - COUPON has the highest positive correlation with DISTANCE. It would mean that if distance is more, then there is a possibility that there will be more coupons for that route.**
+**5 - COUPON has high negative correlation with HI. It would mean that if a route has lesser flights, then the HI index would be more and coupons for that route will be less.**
+
+
+```{r COUPON-FARE}
+##
+##  Relation between Average Fare for a route and the Average number of Coupons for the route.
+##
+coupon_sct <- plot(inp_file.df$COUPON, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+                   xlab='Average number of COUPONS for the route.', ylab ='Average FARE on the Route', 
+                   sub='Black - Absense of SouthWest Airlines   Red - Presence of SouthWest Airlines', 
+                   main='Relationship between Average Fare and Average Number of Coupons.')
+abline(lm(inp_file.df$FARE~inp_file.df$COUPON))
+```
+**The above scatter plot explains the relationship between Average COUPONS for a route and the FARE for that route. There is a positive linear relationship between both variables. With increase in FARE for a route, there are more number of coupons for that route. It can also be seen that for routes where SouthWest airlines is operating (denatoted by RED colour), the FARE is low in majority of the cases.**
+
+```{r FARE-HI}
+##
+## Let's check the relationship between Average Fare of a route with 
+## the HI (Herfindahl index, a measure of market concentration)
+##
+plot(inp_file.df$HI, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Herfindahl index, a measure of market concentration.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines  Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare and Herfindahl index(HI).')
+abline(lm(inp_file.df$FARE~inp_file.df$HI))
+```
+
+**The above scatter plot shows the relationship between FARE and HI index. It can be seen that there is no significant relationship between FARE and HI index. It can also be verifies from the Heat Map generated above where the correlation between HI and FARE is very close to 0.**
+
+```{r S_INCOME-FARE}
+##
+## Let's check the relationship between Average Fare for a route(FARE) 
+## and Starting City's Average Personal Income (S_INCOME)
+##
+plot(inp_file.df$S_INCOME, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Starting city’s average personal income.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines  Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Starting city avg personal income.')
+abline(lm(inp_file.df$FARE~inp_file.df$S_INCOME))
+```
+
+**The above scatter plot shows he relationship between FARE and Starting City's Average Income. We can see that it has a linear positive relationship between FARE and S_INCOME. Also, based on the plot we can say that, majority of the SoutWest Airlines customer starting from a city are having a average personal income in between $20000 to $30000. Also, we can infer that for majority of the cases, the FARE for a route operated by SouthWest Airlines is below $200.** 
+
+
+```{r FARE-E_INCOME}
+##
+## Now, let's check the relationship between Average Fare for a route(FARE) 
+## and Ending City's Average Personal Income (S_INCOME)
+##
+plot(inp_file.df$E_INCOME, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Ending city’s average personal income.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines   Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Ending city’s avg personal income.')
+abline(lm(inp_file.df$FARE~inp_file.df$E_INCOME))
+```
+
+**The above scatter plot shows he relationship between FARE and Ending City's Average Income. We can see that it has a linear positive relationship between FARE and E_INCOME. Also, based on the plot we can say that, majority of the SoutWest Airlines customer starting from a city are having a average personal income in between $22000 to $30000. Also, we can infer that for majority of the cases, the FARE for a route operated by SouthWest Airlines is below $200.**
+
+
+```{r Fare-S_POP}
+##
+## Let's check the relationship between Average Fare for a route(FARE) 
+## and Starting City's Population (S_POP)
+##
+plot(inp_file.df$S_POP, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Starting city’s Population.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines  Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Starting city’s Population.')
+abline(lm(inp_file.df$FARE~inp_file.df$S_POP))
+```
+
+**The above scatter plot explains the relationship between Avergae Fare and Starting City's population. There is a small positive correlation between both the variables. It can also be verified from the heat map generated above which shows the correlation between both variables as 0.15**
+
+```{r FARE-E_POP}
+##
+## Let's check the relationship between Average Fare for a route(FARE) 
+## and Ending City's Population (S_POP)
+##
+plot(inp_file.df$E_POP, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Ending city’s Population.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines  Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Ending city’s Population.')
+abline(lm(inp_file.df$FARE~inp_file.df$E_POP))
+```
+
+**The above scatter plot explains the relationship between Avergae Fare and Starting City's population. There is a small positive correlation between both the variables. It can also be verified from the heat map generated above which shows the correlation between both variables as 0.15**
+
+```{r FARE-DISTANCE}
+##
+## Now, let's check the relationship between Average Fare for a route(FARE) 
+## and the distance between two end points. 
+##
+plot(inp_file.df$DISTANCE, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Distance between two end points.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines   Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Distance between end points.')
+abline(lm(inp_file.df$FARE~inp_file.df$DISTANCE))
+```
+
+**The above scatter plot explains the relationship between FARE and DISTANCE between two points. We can see that there is a strong positive correlation between DISTANCE and FARE. Also, we can infer that for majority of the cases, the FARE for a route operated by SouthWest Airlines is below $200.**
+
+```{r FARE-PAX}
+##
+## Lastly, let's check the relationship between Average Fare for a route(FARE) 
+## and the Number of passsenger on that route. 
+##
+plot(inp_file.df$PAX, inp_file.df$FARE, pch=18, col=factor(inp_file.df$SW), 
+     xlab='Number of passengers on that route.', ylab ='Average FARE on the Route', 
+     sub='Black - Absense of SouthWest Airlines   Red - Presence of SouthWest Airlines', 
+     main='Relationship between Average Fare & Number of passengers.')
+abline(lm(inp_file.df$FARE~inp_file.df$PAX))
+```
+**The above scatter plot explains the relationship between Average Fare and Number of Passengers on that route. We can see that there is a negative linear relationship between FARE and Number of passengers. Also, we can infer that for majority of the cases, the FARE for a route operated by SouthWest Airlines is below $200.**
+
+```{r COUPON-DISTANCE}
+##
+## Let's check the relationship between Average Fare for a route(FARE) 
+## and the Number of passsenger on that route. 
+##
+plot(inp_file.df$DISTANCE, inp_file.df$COUPON, pch=18, col=factor(inp_file.df$SW), 
+     xlab='DISTANCE between two end points.', ylab ='Avg Number of coupons for a route.', 
+     sub='Black - Absense of SouthWest Airlines   Red - Presence of SouthWest Airlines', 
+     main='Average number of Coupons ~ Distance between two points.')
+abline(lm(inp_file.df$COUPON~inp_file.df$DISTANCE))
+```
+
+**The above scatter plot expalins the relationship between Number of Coupons for a route and the distance between two end points. We can see that both variables have a strong positive correlation. It can also be verified from the heat map / correlaton map generated which shows a postive correlation of 0.75 between both variables.** 
+
+
+```{r average-fare-for-each-catagory, echo=FALSE}
+##
+## Displaying the percentage of flights in each catagory (based on catagorical predictors).
+##
+print("Percentage of flights based on Vacation catagory: ")
+prop.table(table(inp_file$VACATION))
+#
+print("Percentage of flights based on SW catagory: ")
+prop.table(table(inp_file$SW))
+#
+print("Percentage of flights based on Slot catagory:")
+prop.table(table(inp_file$SLOT))
+#
+print("Percentage of flights based on Gate catagory:")
+prop.table(table(inp_file$GATE))
+```
+
+**1 - We can see that almost 27 percent of the flights are operated on the vacation route and the rest other flights are operated on regular routes.**
+**2 - For almost 30 percent of the routes, SouthWest airlines is providing it's service.**
+**3 - Almost 28.5 percent of the routes are Slot controlled.**
+**4 - Similarly, almost 20 percent of the endpoints are gate controlled.**
+
+
+```{r pivottable}
+## Creating and displaying a pivot table with average fare in each catagory.
+pt <- PivotTable$new()
+pt$addData(inp_file.df)
+pt$addColumnDataGroups("SW")
+pt$addRowDataGroups("VACATION")
+pt$addRowDataGroups("SLOT")
+pt$addRowDataGroups("GATE")
+pt$defineCalculation(calculationName="Mean Fare", summariseExpression="mean(FARE)")
+pt$renderPivot()
+```
+
+**The above pivot table summerizes the Average Fare basedon each categorical variable and it's combination. For Example, the average fare for a route where SouthWest airlines doesn't operates and which is not on a vacation route and is not slot controlled and not Gate constrained is around $196.18**
+
+
+*For building the model, below code will partition the data to training and testing dataset and will be used in subsequent code.*
+
+```{r datapartition, echo=FALSE}
+## Creating the training and validation dataset for performing the regression analysis.
+set.seed(42)
+split <- round(nrow(inp_file.df) * 0.75)
+train.df <- inp_file.df[1:split, ]
+test.df <- inp_file.df[(split+1):nrow(inp_file.df), ]
+```
+
+**From the total data set, 75% of records are allocated to the training data set and rest 25% to the testing data set. We will build and train the model using the training data set and will test it's efficiency using the testing data set. **
+
+**Now we will build a linear regression model using the Step Wise subset selection process which will help us to get the best model.** 
+
+```{r stepwiseregression, echo=FALSE}
+print("Statistics of stepwise regression analysis with leap package:")
+## Performing the stepwise regression on the training dataset using leap package.
+inp.lm.stepwise <- regsubsets(FARE ~ COUPON + NEW + VACATION + SW + HI + S_INCOME + E_INCOME 
+                              + S_POP + E_POP + SLOT + GATE + DISTANCE + PAX, 
+                              data = train.df, nvmax = dim(train.df)[2], method ="seqrep")
+splitsummary <- summary(inp.lm.stepwise)
+splitsummary
+## Displaying the different combination of variables, r square, adjusted r square.
+splitsummary$which
+
+print("The R-Squared value for each combination is displayed below:")
+splitsummary$rsq
+
+print("The Adjusted R-Squared value for each combination is displayed below:")
+splitsummary$adjr2
+```
+
+**Based on the step wise subset selection process, the model with best adjusted R squared value is being chosen and all the variables are being considered.**
+
+*Now, let create the best model based on the subset selection process for our prediction.*
+
+```{r bestmodel-subset}
+stepwise.best <- lm(FARE ~ COUPON + NEW + VACATION + SW + HI + S_INCOME + E_INCOME 
+                    + S_POP + E_POP + SLOT + GATE + DISTANCE + PAX, data = train.df)
+summary(stepwise.best)
+```
+
+**Based on the summary of the stepwise.best model, going by the p-value, we can see that apart from COUPON, all other variables included are statistically significant a 5 percent level of significance. Hence we will now remove COUPON from our model and proceed.**
+
+```{r best-model-final}
+linear.best <- lm(FARE ~ NEW + VACATION + SW + HI + S_INCOME + E_INCOME 
+                  + S_POP + E_POP + SLOT + GATE + DISTANCE + PAX, data = train.df)
+summary(linear.best)
+```
+
+**Based on the summary of the linear.best model, going by the p-value, we can see that all variables included are statistically significant a 5 percent level of significance. Hence we will now consider this model for our prediction purpose.**
+
+**To confirm our decision, let's compare the predictive accuracy of both the above models (with and without COUPON) using the testing dataset.**
+
+```{r predictionaccuracycomparision, echo=FALSE}
+## Comparing the predictive accuracy of both exhaustive and stepwise regression model. 
+print("Displaying the accuracy of models with and without COUPON:")
+inp.lm.stepwise.pred <- predict(stepwise.best, test.df)
+inp.lm.linear.pred <- predict(linear.best, test.df)
+print("Accuracy of model with COUPON")
+accuracy(inp.lm.stepwise.pred, test.df$FARE)
+print("Accuracy of model without COUPON")
+accuracy(inp.lm.linear.pred, test.df$FARE)
+```
+
+**Based on the RMSE value of the models we can conclude that the model without the COUPON variable is a better model as the RMSE value is less.**
+
+**Now, to further validate our findings from the model, let's consider backward selection process with StepAIC to confirm our findings.**
+
+```{r backwardselectionwithstepAIC, echo=FALSE}
+print("Statistics of backward selection regression analysis with stepAIC:")
+## Performing the backward selection regression on the training dataset using stepAIC.
+lm.airfare <- lm((FARE ~ COUPON + NEW + VACATION + SW + HI + S_INCOME + E_INCOME 
+                  + S_POP + E_POP + SLOT + GATE + DISTANCE + PAX), data = train.df)
+inp.lm.bselectAIC <- stepAIC(lm.airfare, direction = "backward")
+backward_aic <- summary(inp.lm.bselectAIC)
+stepAIC_predict <- predict(inp.lm.bselectAIC, test.df)
+## Displaying the accuracy of the model.
+print("The acuracy measures of the model is being displayed below:")
+accuracy(stepAIC_predict, test.df$FARE)
+```
+
+**So, based on the final model results obtained from the backward selection process with StepAIC, COUPON is not statistically significant and can be removed from our model. So, our linear.best model can be considered for our prediction purpose.**
+
+**Let's assume a situation with the following characterstics: COUPON = 1.202, NEW = 3, VACATION = No, SW = No, HI = 4442.141, S_INCOME = $28,760, E_INCOME = $27,664, S_POP = 4,557,004, E_POP = 3,195,503, SLOT = Free, GATE = Free, PAX = 12,782, DISTANCE = 1976 miles. Now, let's predict the FARE for the route.** 
+
+
+```{r predictionwithgivenvalue, echo=FALSE}
+## Predicting the avegare fare for a route where Southwest airlines doesn't serve the route. 
+predicted_value <- linear.best$coefficients["NEW"]*3 +       
+linear.best$coefficients["VACATIONYes"]*0 +
+linear.best$coefficients["SWYes"]*0 +      
+linear.best$coefficients["HI"]*4442.141 +         
+linear.best$coefficients["S_INCOME"]*28760 +   
+linear.best$coefficients["E_INCOME"]*27664 +   
+linear.best$coefficients["S_POP"]*4557004 +      
+linear.best$coefficients["E_POP"]*3195503 +      
+linear.best$coefficients["SLOTFree"]*1 +   
+linear.best$coefficients["GATEFree"]*1 +   
+linear.best$coefficients["DISTANCE"]*1976 +  
+linear.best$coefficients["PAX"]*12782        
+## Displaying the average fare predicted.
+print("The avegare fare for a route where Southwest airlines is not serving is:")
+predicted_value
+```
+
+**With our linear.best model, the value of average Fare for a route where Southwest Airline is not operating in the route (SW = No/0) is $242.5. The value of Fare is high in this case because when there are no low cost airlines operating in that route, the compition is less and the price will be more. **
+
+**Now, let's predict the FARE for the route when SouthWest Airlines enters the route SW = Yes.**
+
+```{r predictionwithsowthwestin, echo=FALSE}
+## Predicting the avegare fare for a route where Southwest airlines is serving the route.
+predicted_value_sw_in <- linear.best$coefficients["NEW"]*3 +       
+linear.best$coefficients["VACATIONYes"]*0 +
+linear.best$coefficients["SWYes"]*1 +      
+linear.best$coefficients["HI"]*4442.141 +         
+linear.best$coefficients["S_INCOME"]*28760 +   
+linear.best$coefficients["E_INCOME"]*27664 +   
+linear.best$coefficients["S_POP"]*4557004 +      
+linear.best$coefficients["E_POP"]*3195503 +      
+linear.best$coefficients["SLOTFree"]*1 +   
+linear.best$coefficients["GATEFree"]*1 +   
+linear.best$coefficients["DISTANCE"]*1976 +  
+linear.best$coefficients["PAX"]*12782  
+## Displaying the average fare predicted.
+print("The avegare fare for a route where Southwest airlines is serving is:")
+predicted_value_sw_in
+```
+
+**With our linear.best model, the value of average Fare for a route where Southwest Airline serves the route (SW = Yes/1) is $202.4. The value of Fare is decreasing in this case because Southwest Airlines is a low cost airlines and when it starts a new route, the fare will decrease. **
+
+
+**But, from the heatmap / correlation map generated above, we can see that there is a strong positive correlation between COUPON and DISTANCE. Removing it from the model would lead to omitted variable bias and would result in our prediction being underestimated. So, let's include the variable COUPON and it's interaction with DISTANCE in a model and check it's statistical significance and observe it's accuracy measures.**
+
+```{r coupon*distance}
+linear.reg.interaction <- lm(FARE ~ COUPON + NEW + VACATION + SW + HI + S_INCOME 
+                             + E_INCOME + S_POP + E_POP + SLOT + GATE 
+                             + DISTANCE + PAX + (COUPON*DISTANCE) , data = train.df)
+summary(linear.reg.interaction)
+
+linear.reg.intr.pred <- predict(linear.reg.interaction, test.df)
+print("Accuracy of model with COUPON and it's interaction with DISTANCE")
+accuracy(linear.reg.intr.pred, test.df$FARE)
+```
+
+**Based on the summary result of the above model, based on the p-value, we can now see that both the variable COUPON and it's interaction with DISTANCE (COUPON:DISTANCE) along with all other variables are statistically significant now at every significance level.**
+
+
+**Now, let's predict the airfares based on the variables characterstics mentioned above.**
+
+```{r predictionwithgivenvalueSW2, echo=FALSE}
+## Predicting the avegare fare for a route where Southwest airlines doesn't serve the route. 
+predicted_value_sw_1 <- linear.reg.interaction$coefficients["NEW"]*3 + 
+linear.reg.interaction$coefficients["COUPON"]*1.202 +
+linear.reg.interaction$coefficients["VACATIONYes"]*0 +
+linear.reg.interaction$coefficients["SWYes"]*1 +      
+linear.reg.interaction$coefficients["HI"]*4442.141 +         
+linear.reg.interaction$coefficients["S_INCOME"]*28760 +   
+linear.reg.interaction$coefficients["E_INCOME"]*27664 +   
+linear.reg.interaction$coefficients["S_POP"]*4557004 +      
+linear.reg.interaction$coefficients["E_POP"]*3195503 +      
+linear.reg.interaction$coefficients["SLOTFree"]*1 +   
+linear.reg.interaction$coefficients["GATEFree"]*1 +   
+linear.reg.interaction$coefficients["DISTANCE"]*1976 +  
+linear.reg.interaction$coefficients["PAX"]*12782 +
+linear.reg.interaction$coefficients["COUPON:DISTANCE"]*(1.202*1976)
+## Displaying the average fare predicted.
+print("The avegare fare for a route where Southwest airlines is serving is:")
+predicted_value_sw_1
+```
+
+**With our linear model with COUPON and it's interaction with DISTANCE, the value of average Fare for a route where Southwest Airline serves the route (SW = Yes/1) is $357. The value of Fare is decreasing in this case because Southwest Airlines is a low cost airlines and when it starts a new route, the fare will decrease. **
+
+
+```{r predictionwithgivenvalue2, echo=FALSE}
+## Predicting the avegare fare for a route where Southwest airlines doesn't serve the route. 
+predicted_value_sw_0 <- linear.reg.interaction$coefficients["NEW"]*3 + 
+linear.reg.interaction$coefficients["COUPON"]*1.202 +
+linear.reg.interaction$coefficients["VACATIONYes"]*0 +
+linear.reg.interaction$coefficients["SWYes"]*0 +      
+linear.reg.interaction$coefficients["HI"]*4442.141 +         
+linear.reg.interaction$coefficients["S_INCOME"]*28760 +   
+linear.reg.interaction$coefficients["E_INCOME"]*27664 +   
+linear.reg.interaction$coefficients["S_POP"]*4557004 +      
+linear.reg.interaction$coefficients["E_POP"]*3195503 +      
+linear.reg.interaction$coefficients["SLOTFree"]*1 +   
+linear.reg.interaction$coefficients["GATEFree"]*1 +   
+linear.reg.interaction$coefficients["DISTANCE"]*1976 +  
+linear.reg.interaction$coefficients["PAX"]*12782 +
+linear.reg.interaction$coefficients["COUPON:DISTANCE"]*(1.202*1976)
+## Displaying the average fare predicted.
+print("The avegare fare for a route where Southwest airlines is not serving is:")
+predicted_value_sw_0
+```
+
+**With our linear model with COUPON and it's interaction with DISTANCE, the value of average Fare for a route where Southwest Airline serves the route (SW = No/0) is $395.6. The value of Fare is increasing in this case because if there are n low cost aitlines for a route, then FARE for that route will be higher because of less compitition.**
+
+*Based on the above prediction, we can come to a conclusion that whenever a low cost airlines like SouthWest airlines will start it's operation in a new route, the ticket FARE for that route will most likely decrease.*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
