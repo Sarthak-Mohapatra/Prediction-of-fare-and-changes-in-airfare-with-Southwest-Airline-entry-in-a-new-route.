@@ -8,7 +8,7 @@ is: Whether the presence or absence of Southwest Airlines (a low-cost entrant) w
 * General Info
 * Variable Description
 * Screenshots
-* Technologies and Tools
+* Technologies and Methods
 * States
 * Contact
 
